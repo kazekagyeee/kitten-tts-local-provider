@@ -47,16 +47,17 @@ VOICE_MAP = {
 # Valid Russian voices for v5_ru models
 VALID_VOICES = ["aidar", "baya", "kseniya", "xenia", "eugene"]
 
-# Load model via torch.hub
+# Load model via torch.hub with trust_repo=True
 logger.info(f"Loading Silero model: {MODEL_VERSION}, speaker: {DEFAULT_VOICE}")
 device = torch.device("cpu")
 
-# Silero models repo on GitHub
+# Silero models repo - trust_repo=True allows download without prompt
 model, example_text = torch.hub.load(
     repo_or_dir="snakers4/silero-models",
     model="silero_tts",
     language=DEFAULT_LANGUAGE,
     speaker=DEFAULT_VOICE,
+    trust_repo=True,
 )
 model.to(device)
 logger.info(f"Model loaded. Example text: {example_text}")

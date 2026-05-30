@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 # Copy application
 COPY server.py .
 
+# Trust torch.hub repositories
+ENV TORCH_HUB_TRUST_REPO="*"
+
 EXPOSE 8000
 
 CMD ["python", "server.py"]
