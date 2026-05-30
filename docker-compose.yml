@@ -1,22 +1,22 @@
 services:
-  kitten-tts:
+  silero-tts:
     build: .
-    container_name: kitten-tts
+    container_name: silero-tts
     ports:
       - "${PORT}:8000"
     environment:
-      - KITTEN_MODEL_SIZE=${KITTEN_MODEL_SIZE}
       - PORT=${PORT}
       - HOST=0.0.0.0
       - SAMPLE_RATE=${SAMPLE_RATE}
       - DEFAULT_VOICE=${DEFAULT_VOICE}
-      - CORS_ORIGINS=${CORS_ORIGINS}
+      - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE}
+      - MODEL_VERSION=${MODEL_VERSION}
     volumes:
-      - ./models:/root/.cache/huggingface # Cache models here
+      - ./models:/root/.cache/torch # Cache models here
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 30s

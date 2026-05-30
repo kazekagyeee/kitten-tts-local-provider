@@ -1,20 +1,23 @@
-# KittenTTS Local Provider
+# Silero TTS Local Provider
 
-OpenAI-compatible TTS server using [KittenTTS](https://github.com/KittenML/KittenTTS) models.
+OpenAI-compatible TTS server using [Silero](https://github.com/snakers4/silero-models) models.
 
 ## Features
 
-- 🚀 **Lightweight** — Models from 15M to 80M parameters
-- 🔊 **8 voices** — Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
+- 🗣️ **Russian language** — Native Russian TTS with auto-stress and homograph support
+- 🎭 **5 voices** — aidar, baya, kseniya, xenia, eugene
 - 📡 **OpenAI-compatible API** — Drop-in replacement for OpenAI TTS
 - 🐳 **Docker Ready** — One command to deploy
+- 🔥 **Fast on CPU** — Optimized for real-time inference
 
 ## Quick Start
 
 ```bash
 # Clone and configure
+git clone git@github.com:kazekagyeee/silero-tts-local-provider.git
+cd silero-tts-local-provider
 cp .env.example .env
-# Edit .env to choose model size and voice
+# Edit .env to choose voice
 
 # Start
 docker compose up -d
@@ -22,8 +25,8 @@ docker compose up -d
 # Test
 curl -X POST http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Hello, world!", "voice": "Jasper"}' \
-  --output test.mp3
+  -d '{"input": "Привет, мир!", "voice": "aidar"}' \
+  --output test.wav
 ```
 
 ## API Endpoints
@@ -35,14 +38,16 @@ OpenAI-compatible TTS endpoint.
 **Request:**
 ```json
 {
-  "model": "kitten-tts",
-  "input": "Hello, world!",
-  "voice": "Jasper",
-  "speed": 1.0
+  "model": "silero-tts",
+  "input": "Привет, мир!",
+  "voice": "aidar",
+  "language": "ru",
+  "speed": 1.0,
+  "sample_rate": 24000
 }
 ```
 
-**Response:** Audio file (MP3)
+**Response:** Audio file (WAV/MP3)
 
 ### `GET /v1/voices`
 
@@ -62,34 +67,30 @@ Health check endpoint.
 |----------|---------|-------------|
 | `PORT` | 8000 | Server port |
 | `HOST` | 0.0.0.0 | Server host |
-| `KITTEN_MODEL_SIZE` | nano | Model: nano, nano-int8, micro, mini |
-| `SAMPLE_RATE` | 24000 | Audio sample rate |
-| `DEFAULT_VOICE` | Jasper | Default voice |
-| `CORS_ORIGINS` | * | CORS origins |
+| `SAMPLE_RATE` | 24000 | Audio sample rate (8000, 24000, 48000) |
+| `DEFAULT_VOICE` | aidar | Default voice |
+| `DEFAULT_LANGUAGE` | ru | Language code |
+| `MODEL_VERSION` | v5_5_ru | Model version |
 
-## Voice Mapping
+## Voices
 
-KittenTTS voices mapped to OpenAI-style names for compatibility:
+| Voice | Gender | Description |
+|-------|--------|-------------|
+| aidar | Male | Deep, authoritative |
+| baya | Female | Warm, friendly |
+| kseniya | Female | Clear, professional |
+| xenia | Female | Soft, calm |
+| eugene | Male | Standard, neutral |
 
-| OpenAI Voice | KittenTTS Voice |
-|--------------|-----------------|
-| alloy | Jasper |
-| echo | Hugo |
-| fable | Leo |
-| onyx | Bruno |
-| nova | Luna |
-| shimmer | Bella |
-| asteroid | Kiki |
-| sage | Rosie |
+## Model Versions
 
-## Models
-
-| Model | Params | Size | Speed | Quality |
-|-------|--------|------|-------|---------|
-| nano | 15M | ~25MB | Fastest | Good |
-| nano-int8 | 15M | ~25MB | Fast | Good |
-| micro | 40M | ~41MB | Medium | Better |
-| mini | 80M | ~80MB | Slower | Best |
+| Version | Quality | Auto-stress | Homographs | Questions |
+|---------|---------|-------------|------------|-----------|
+| v5_5_ru | Best | ✅ | ✅ | ✅ |
+| v5_4_ru | Good | ✅ | ✅ | ✅ |
+| v5_3_ru | Standard | ✅ | ✅ | ❌ |
+| v5_2_ru | Standard | ✅ | ✅ | ❌ |
+| v5_ru | Standard | ✅ | ✅ | ❌ |
 
 ## Using with Hermes
 
@@ -99,8 +100,8 @@ In your Hermes config, add the openai provider pointing to this server:
 tts:
   provider: openai
   openai:
-    model: kitten-tts
-    voice: Jasper
+    model: silero-tts
+    voice: aidar
     base_url: http://YOUR_PC_IP:8000/v1
 ```
 
