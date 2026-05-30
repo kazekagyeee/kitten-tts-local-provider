@@ -1,6 +1,6 @@
 """
 Silero TTS Local Provider
-OpenAI-compatible TTS server using Silero models
+OpenAI-compatible TTS server using Silero models via torch.hub
 """
 
 import os
@@ -14,8 +14,6 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
-
-from silero import silero_tts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,23 +44,22 @@ VOICE_MAP = {
     "eugene": "eugene",
 }
 
-# Load model
-logger.info(f"Loading Silero model: {MODEL_VERSION}")
+# Valid Russian voices for v5_ru models
+VALID_VOICES = ["aidar", "baya", "kseniya", "xenia", "eugene"]
+
+# Load model via torch.hub
+logger.info(f"Loading Silero model: {MODEL_VERSION}, speaker: {DEFAULT_VOICE}")
 device = torch.device("cpu")
-model, example_text = silero_tts(language=DEFAULT_LANGUAGE, speaker=DEFAULT_VOICE)
+
+# Silero models repo on GitHub
+model, example_text = torch.hub.load(
+    repo_or_dir="snakers4/silero-models",
+    model="silero_tts",
+    language=DEFAULT_LANGUAGE,
+    speaker=DEFAULT_VOICE,
+)
 model.to(device)
-logger.info(f"Model loaded. Example: {example_text}")
-
-
-def get_audio_format(requested_format: str) -> str:
-    """Map requested format to actual format"""
-    format_map = {
-        "mp3": "mp3",
-        "wav": "wav",
-        "ogg": "ogg",
-        "opus": "opus",
-    }
-    return format_map.get(requested_format.lower(), "mp3")
+logger.info(f"Model loaded. Example text: {example_text}")
 
 
 @asynccontextmanager
@@ -96,39 +93,35 @@ async def text_to_speech(request: SpeechRequest):
     # Map voice name
     speaker = VOICE_MAP.get(request.voice.lower(), request.voice)
 
+    # Validate voice
+    if speaker not in VALID_VOICES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Voice '{speaker}' not available. Available: {VALID_VOICES}"
+        )
+
     # Generate audio
     try:
-        # Silero expects sample_rate as int
+        sr = request.sample_rate or SAMPLE_RATE
         audio = model.apply_tts(
             text=request.input,
             speaker=speaker,
-            sample_rate=request.sample_rate or SAMPLE_RATE,
+            sample_rate=sr,
         )
     except Exception as e:
         logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
 
-    # Convert numpy array to bytes
+    # Convert numpy array to WAV bytes
     audio_bytes = io.BytesIO()
-    if request.response_format.lower() == "wav":
-        import wave
-        sample_rate = request.sample_rate or SAMPLE_RATE
-        audio_int16 = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
-        with wave.open(audio_bytes, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
-            wf.writeframes(audio_int16.tobytes())
-    else:
-        # For mp3/ogg - save as wav first, let the client handle conversion
-        import wave
-        sample_rate = request.sample_rate or SAMPLE_RATE
-        audio_int16 = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
-        with wave.open(audio_bytes, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
-            wf.writeframes(audio_int16.tobytes())
+    audio_int16 = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
+
+    import wave
+    with wave.open(audio_bytes, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(audio_int16.tobytes())
 
     audio_bytes.seek(0)
     return Response(content=audio_bytes.read(), media_type="audio/wav")
@@ -151,12 +144,11 @@ async def list_models():
 @app.get("/v1/voices")
 async def list_voices():
     """List available voices"""
-    voices = ["aidar", "baya", "kseniya", "xenia", "eugene"]
     return {
         "object": "list",
         "data": [
             {"id": v, "name": v, "language": DEFAULT_LANGUAGE}
-            for v in voices
+            for v in VALID_VOICES
         ]
     }
 
