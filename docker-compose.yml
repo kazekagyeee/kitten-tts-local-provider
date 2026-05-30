@@ -1,0 +1,22 @@
+services:
+  kitten-tts:
+    build: .
+    container_name: kitten-tts
+    ports:
+      - "${PORT}:8000"
+    environment:
+      - KITTEN_MODEL_SIZE=${KITTEN_MODEL_SIZE}
+      - PORT=${PORT}
+      - HOST=0.0.0.0
+      - SAMPLE_RATE=${SAMPLE_RATE}
+      - DEFAULT_VOICE=${DEFAULT_VOICE}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    volumes:
+      - ./models:/root/.cache/huggingface # Cache models here
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
