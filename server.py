@@ -104,11 +104,20 @@ async def text_to_speech(request: SpeechRequest):
     # Generate audio
     try:
         sr = request.sample_rate or SAMPLE_RATE
-        audio = model.apply_tts(
-            text=request.input,
-            speaker=speaker,
-            sample_rate=sr,
-        )
+        # New Silero API uses 'texts' (list), old uses 'text'
+        try:
+            audio = model.apply_tts(
+                texts=[request.input],
+                speaker=speaker,
+                sample_rate=sr,
+            )[0]
+        except TypeError:
+            # Fallback to old API
+            audio = model.apply_tts(
+                text=request.input,
+                speaker=speaker,
+                sample_rate=sr,
+            )
     except Exception as e:
         logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
