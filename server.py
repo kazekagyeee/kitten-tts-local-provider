@@ -31,7 +31,7 @@ VOICE_MAP = {
     "alloy": "aidar",
     "echo": "baya",
     "fable": "kseniya",
-    "onyx": "xenia",
+    "onyx": "kseniya_v2",
     "nova": "eugene",
     "shimmer": "aidar",
     "asteroid": "aidar",
@@ -40,12 +40,12 @@ VOICE_MAP = {
     "aidar": "aidar",
     "baya": "baya",
     "kseniya": "kseniya",
-    "xenia": "xenia",
+    "kseniya_v2": "kseniya_v2",
     "eugene": "eugene",
 }
 
 # Valid Russian voices for v5_ru models
-VALID_VOICES = ["aidar", "baya", "kseniya", "xenia", "eugene"]
+VALID_VOICES = ["aidar", "baya", "kseniya", "kseniya_v2", "eugene"]
 
 # Load model via torch.hub with trust_repo=True
 logger.info(f"Loading Silero model: {MODEL_VERSION}, speaker: {DEFAULT_VOICE}")
