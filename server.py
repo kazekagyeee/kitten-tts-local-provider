@@ -53,17 +53,7 @@ logger.info(f"Loading Silero model: {MODEL_VERSION}, speaker: {DEFAULT_VOICE}")
 device = torch.device("cpu")
 
 try:
-    # Try loading without speaker (multi-speaker model like v5_ru)
-    model, example_text = torch.hub.load(
-        repo_or_dir="snakers4/silero-models",
-        model="silero_tts",
-        language=DEFAULT_LANGUAGE,
-        trust_repo=True,
-    )
-    model.SPEAKER = DEFAULT_VOICE  # Store default speaker
-    logger.info(f"Model loaded (multi-speaker). Example text: {example_text}")
-except (TypeError, RuntimeError):
-    # Fallback: load with specific speaker
+    # Load with speaker (v5 models bake speaker into model)
     model, example_text = torch.hub.load(
         repo_or_dir="snakers4/silero-models",
         model="silero_tts",
@@ -72,7 +62,10 @@ except (TypeError, RuntimeError):
         trust_repo=True,
     )
     model.SPEAKER = DEFAULT_VOICE
-    logger.info(f"Model loaded (single-speaker: {DEFAULT_VOICE}). Example text: {example_text}")
+    logger.info(f"Model loaded. Example text: {example_text}")
+except Exception as e:
+    logger.error(f"Model loading failed: {e}")
+    raise RuntimeError(f"Failed to load Silero model: {e}") from e
 
 model.to(device)
 
