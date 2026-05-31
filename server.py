@@ -48,19 +48,33 @@ VOICE_MAP = {
 VALID_VOICES = ["aidar", "baya", "kseniya", "kseniya_v2", "eugene"]
 
 # Load model via torch.hub with trust_repo=True
+# Note: v5 models load a specific speaker, v5_ru multi-speaker loads without speaker
 logger.info(f"Loading Silero model: {MODEL_VERSION}, speaker: {DEFAULT_VOICE}")
 device = torch.device("cpu")
 
-# Silero models repo - trust_repo=True allows download without prompt
-model, example_text = torch.hub.load(
-    repo_or_dir="snakers4/silero-models",
-    model="silero_tts",
-    language=DEFAULT_LANGUAGE,
-    speaker=DEFAULT_VOICE,
-    trust_repo=True,
-)
+try:
+    # Try loading without speaker (multi-speaker model like v5_ru)
+    model, example_text = torch.hub.load(
+        repo_or_dir="snakers4/silero-models",
+        model="silero_tts",
+        language=DEFAULT_LANGUAGE,
+        trust_repo=True,
+    )
+    model.SPEAKER = DEFAULT_VOICE  # Store default speaker
+    logger.info(f"Model loaded (multi-speaker). Example text: {example_text}")
+except (TypeError, RuntimeError):
+    # Fallback: load with specific speaker
+    model, example_text = torch.hub.load(
+        repo_or_dir="snakers4/silero-models",
+        model="silero_tts",
+        language=DEFAULT_LANGUAGE,
+        speaker=DEFAULT_VOICE,
+        trust_repo=True,
+    )
+    model.SPEAKER = DEFAULT_VOICE
+    logger.info(f"Model loaded (single-speaker: {DEFAULT_VOICE}). Example text: {example_text}")
+
 model.to(device)
-logger.info(f"Model loaded. Example text: {example_text}")
 
 
 @asynccontextmanager
@@ -114,19 +128,21 @@ async def text_to_speech(request: SpeechRequest):
         
         if 'texts' in params:
             # New API: texts list
-            audio = model.apply_tts(texts=[request.input], speaker=speaker, sample_rate=sr)[0]
+            result = model.apply_tts(texts=[request.input], sample_rate=sr)
+            audio = result[0] if hasattr(result, '__len__') else result
         elif 'text' in params:
-            # Standard API with put_accent/put_yo
-            audio = model.apply_tts(
+            # Standard API - speaker is baked into model at load time
+            result = model.apply_tts(
                 text=request.input,
-                speaker=speaker,
                 sample_rate=sr,
                 put_accent=put_accent,
                 put_yo=put_yo,
             )
+            audio = result[0] if hasattr(result, '__len__') and not isinstance(result, (str, bytes)) else result
         else:
-            # Fallback: positional
-            audio = model.apply_tts(request.input, speaker, sr)[0]
+            # Fallback: positional (old models)
+            result = model.apply_tts(request.input, sr)
+            audio = result[0] if hasattr(result, '__len__') and not isinstance(result, (str, bytes)) else result
     except Exception as e:
         logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
