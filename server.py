@@ -1,10 +1,12 @@
 """
 Silero TTS Local Provider
-OpenAI-compatible TTS server using Silero models via torch.hub
+OpenAI-compatible TTS server using Silero v5 models via torch.hub
+
+Model: v5_5_ru (multi-speaker: aidar, baya, kseniya, xenia, eugene)
+Inference: model.save_wav(text=..., speaker=..., sample_rate=...)
 """
 
 import os
-import io
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -18,64 +20,65 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Config from env
+# ── Config from env ──────────────────────────────────────────────────────────
 PORT = int(os.getenv("PORT", "8000"))
 HOST = os.getenv("HOST", "0.0.0.0")
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "24000"))
 DEFAULT_VOICE = os.getenv("DEFAULT_VOICE", "aidar")
 DEFAULT_LANGUAGE = os.getenv("DEFAULT_LANGUAGE", "ru")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "v5_5_ru")
+PREFERRED_GENDER = os.getenv("PREFERRED_GENDER", "").strip().lower()  # "", "male", "female"
 
-# Map OpenAI-style voices to Silero speakers
-VOICE_MAP = {
-    "alloy": "aidar",
-    "echo": "baya",
-    "fable": "kseniya",
-    "onyx": "kseniya_v2",
-    "nova": "eugene",
-    "shimmer": "aidar",
-    "asteroid": "aidar",
-    "sage": "aidar",
-    # Native Silero voices
-    "aidar": "aidar",
-    "baya": "baya",
-    "kseniya": "kseniya",
-    "kseniya_v2": "kseniya_v2",
-    "eugene": "eugene",
+# ── Voice registry with gender ────────────────────────────────────────────────
+# v5_5_ru speakers: aidar, baya, kseniya, xenia, eugene
+VOICES = {
+    "aidar":   {"gender": "male",   "description": "Мужской, глубокий"},
+    "baya":    {"gender": "female", "description": "Женский, тёплый"},
+    "kseniya": {"gender": "female", "description": "Женский, чёткий"},
+    "xenia":   {"gender": "female", "description": "Женский, мягкий"},
+    "eugene":  {"gender": "male",   "description": "Мужской, стандартный"},
 }
 
-# Valid Russian voices for v5_ru models
-VALID_VOICES = ["aidar", "baya", "kseniya", "kseniya_v2", "eugene"]
+# OpenAI voice name mapping
+VOICE_MAP = {
+    "alloy": "aidar", "echo": "baya", "fable": "kseniya",
+    "onyx": "eugene", "nova": "eugene", "shimmer": "baya",
+    "asteroid": "aidar", "sage": "aidar",
+}
 
-# Load model via torch.hub with trust_repo=True
-# Note: v5 models load a specific speaker, v5_ru multi-speaker loads without speaker
-logger.info(f"Loading Silero model: {MODEL_VERSION}, speaker: {DEFAULT_VOICE}")
+def get_valid_voices(gender: str = "") -> list[str]:
+    """Return voices filtered by gender. gender='', 'male', or 'female'."""
+    if gender not in ("male", "female"):
+        return list(VOICES.keys())
+    return [v for v, info in VOICES.items() if info["gender"] == gender]
+
+VALID_VOICES = get_valid_voices(PREFERRED_GENDER)
+logger.info(f"Voices (gender={PREFERRED_GENDER or 'all'}): {VALID_VOICES}")
+
+# ── Load model ────────────────────────────────────────────────────────────────
+# v5_5_ru loads without speaker baked in — speaker is passed at inference
+logger.info(f"Loading Silero: {MODEL_VERSION}")
 device = torch.device("cpu")
 
-try:
-    # Load with speaker (v5 models bake speaker into model)
-    model, example_text = torch.hub.load(
-        repo_or_dir="snakers4/silero-models",
-        model="silero_tts",
-        language=DEFAULT_LANGUAGE,
-        speaker=DEFAULT_VOICE,
-        trust_repo=True,
-    )
-    model.SPEAKER = DEFAULT_VOICE
-    logger.info(f"Model loaded. Example text: {example_text}")
-except Exception as e:
-    logger.error(f"Model loading failed: {e}")
-    raise RuntimeError(f"Failed to load Silero model: {e}") from e
-
+model, example_text = torch.hub.load(
+    repo_or_dir="snakers4/silero-models",
+    model="silero_tts",
+    language=DEFAULT_LANGUAGE,
+    speaker=MODEL_VERSION,
+    trust_repo=True,
+)
 model.to(device)
+logger.info(f"Model loaded. Example: {example_text}")
+
+# Verify save_wav exists (v5 uses save_wav, not apply_tts)
+assert hasattr(model, 'save_wav'), "v5 model must have save_wav method"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"Silero TTS server started on {HOST}:{PORT}")
-    logger.info(f"Model: {MODEL_VERSION}, Language: {DEFAULT_LANGUAGE}")
+    logger.info(f"Silero TTS on {HOST}:{PORT} | model={MODEL_VERSION} | gender={PREFERRED_GENDER or 'all'}")
     yield
-    logger.info("Silero TTS server stopped")
+    logger.info("Server stopped")
 
 
 app = FastAPI(title="Silero TTS Local Provider", lifespan=lifespan)
@@ -89,75 +92,41 @@ class SpeechRequest(BaseModel):
     speed: Optional[float] = 1.0
     response_format: str = "mp3"
     sample_rate: Optional[int] = SAMPLE_RATE
-    stream: bool = False
 
 
 @app.post("/v1/audio/speech")
 async def text_to_speech(request: SpeechRequest):
-    """OpenAI-compatible /v1/audio/speech endpoint"""
+    """OpenAI-compatible /v1/audio/speech"""
     if not request.input:
-        raise HTTPException(status_code=400, detail="input is required")
+        raise HTTPException(400, "input is required")
 
-    # Map voice name
-    speaker = VOICE_MAP.get(request.voice.lower(), request.voice)
+    # Resolve voice
+    voice = VOICE_MAP.get(request.voice.lower(), request.voice)
+    if voice not in VOICES:
+        raise HTTPException(400, f"Unknown voice '{voice}'. Available: {list(VOICES.keys())}")
+    if voice not in VALID_VOICES:
+        raise HTTPException(400, f"Voice '{voice}' blocked by gender filter ({PREFERRED_GENDER}). Available: {VALID_VOICES}")
 
-    # Validate voice
-    if speaker not in VALID_VOICES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Voice '{speaker}' not available. Available: {VALID_VOICES}"
-        )
-
-    # Generate audio
+    # Generate
     try:
         sr = request.sample_rate or SAMPLE_RATE
-        put_accent = True
-        put_yo = True
-        
-        # Try different apply_tts signatures (silero changed API multiple times)
-        import inspect
-        sig = inspect.signature(model.apply_tts)
-        params = list(sig.parameters.keys())
-        
-        if 'texts' in params:
-            # New API: texts list
-            result = model.apply_tts(texts=[request.input], sample_rate=sr)
-            audio = result[0] if hasattr(result, '__len__') else result
-        elif 'text' in params:
-            # Standard API - speaker is baked into model at load time
-            result = model.apply_tts(
-                text=request.input,
-                sample_rate=sr,
-                put_accent=put_accent,
-                put_yo=put_yo,
-            )
-            audio = result[0] if hasattr(result, '__len__') and not isinstance(result, (str, bytes)) else result
-        else:
-            # Fallback: positional (old models)
-            result = model.apply_tts(request.input, sr)
-            audio = result[0] if hasattr(result, '__len__') and not isinstance(result, (str, bytes)) else result
+        audio_path = model.save_wav(
+            text=request.input,
+            speaker=voice,
+            sample_rate=sr,
+        )
+        with open(audio_path, 'rb') as f:
+            audio_bytes = f.read()
+        os.remove(audio_path)
     except Exception as e:
-        logger.error(f"Generation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
+        logger.error(f"TTS failed: {e}")
+        raise HTTPException(500, f"TTS generation failed: {e}")
 
-    # Convert numpy array to WAV bytes
-    audio_bytes = io.BytesIO()
-    audio_int16 = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
-
-    import wave
-    with wave.open(audio_bytes, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(audio_int16.tobytes())
-
-    audio_bytes.seek(0)
-    return Response(content=audio_bytes.read(), media_type="audio/wav")
+    return Response(content=audio_bytes, media_type="audio/wav")
 
 
 @app.get("/v1/models")
 async def list_models():
-    """List available models"""
     return {
         "object": "list",
         "data": [{
@@ -171,11 +140,10 @@ async def list_models():
 
 @app.get("/v1/voices")
 async def list_voices():
-    """List available voices"""
     return {
         "object": "list",
         "data": [
-            {"id": v, "name": v, "language": DEFAULT_LANGUAGE}
+            {"id": v, "name": VOICES[v]["description"], "language": DEFAULT_LANGUAGE, "gender": VOICES[v]["gender"]}
             for v in VALID_VOICES
         ]
     }
@@ -183,8 +151,12 @@ async def list_voices():
 
 @app.get("/health")
 async def health():
-    """Health check"""
-    return {"status": "ok", "model": MODEL_VERSION, "language": DEFAULT_LANGUAGE}
+    return {
+        "status": "ok",
+        "model": MODEL_VERSION,
+        "gender_filter": PREFERRED_GENDER or "all",
+        "voices": VALID_VOICES,
+    }
 
 
 if __name__ == "__main__":
