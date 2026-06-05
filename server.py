@@ -52,8 +52,8 @@ def get_valid_voices(gender: str = "") -> list[str]:
         return list(VOICES.keys())
     return [v for v, info in VOICES.items() if info["gender"] == gender]
 
-VALID_VOICES = get_valid_voices(PREFERRED_GENDER)
-logger.info(f"Voices (gender={PREFERRED_GENDER or 'all'}): {VALID_VOICES}")
+VALID_VOICES = list(VOICES.keys())  # All voices always available
+logger.info(f"Voices available: {VALID_VOICES} (gender_filter: {PREFERRED_GENDER or 'none'})")
 
 # ── Load model ────────────────────────────────────────────────────────────────
 # v5_5_ru loads without speaker baked in — speaker is passed at inference
@@ -104,8 +104,8 @@ async def text_to_speech(request: SpeechRequest):
     voice = VOICE_MAP.get(request.voice.lower(), request.voice)
     if voice not in VOICES:
         raise HTTPException(400, f"Unknown voice '{voice}'. Available: {list(VOICES.keys())}")
-    if voice not in VALID_VOICES:
-        raise HTTPException(400, f"Voice '{voice}' blocked by gender filter ({PREFERRED_GENDER}). Available: {VALID_VOICES}")
+
+    logger.info(f"TTS request: voice='{voice}' | text_len={len(request.input)} | sr={request.sample_rate or SAMPLE_RATE}")
 
     # Generate
     try:
